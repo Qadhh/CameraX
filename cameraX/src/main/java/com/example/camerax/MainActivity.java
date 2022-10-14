@@ -1,17 +1,27 @@
 package com.example.camerax;
 
-import androidx.annotation.NonNull;
-import androidx.appcompat.app.AppCompatActivity;
-import androidx.core.app.ActivityCompat;
-import androidx.core.content.ContextCompat;
+import static androidx.camera.core.CameraSelector.LENS_FACING_BACK;
+import static androidx.camera.core.CameraSelector.LENS_FACING_FRONT;
 
 import android.content.pm.PackageManager;
 import android.os.Bundle;
 import android.view.View;
 import android.widget.Toast;
 
-import com.example.camerax.databinding.ActivityMainBinding;
+import androidx.annotation.NonNull;
+import androidx.appcompat.app.AppCompatActivity;
+import androidx.camera.core.AspectRatio;
+import androidx.camera.core.CameraSelector;
+import androidx.camera.core.Preview;
+import androidx.camera.lifecycle.ProcessCameraProvider;
+import androidx.core.app.ActivityCompat;
+import androidx.core.content.ContextCompat;
 
+import com.example.camerax.databinding.ActivityMainBinding;
+import com.google.common.util.concurrent.ListenableFuture;
+
+import java.util.concurrent.ExecutionException;
+import java.util.concurrent.Executor;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 
@@ -22,6 +32,7 @@ public class MainActivity extends AppCompatActivity {
     private final String[] REQUIRED_PERMISSIONS = new String[]{"android.permission.CAMERA", "android.permission.WRITE_EXTERNAL_STORAGE"};
     private ExecutorService mExecutorService;
     private ExecutorService mCameraExecutor;
+    private boolean mIsBackCamera = true;
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -63,7 +74,45 @@ public class MainActivity extends AppCompatActivity {
 
 
     private void startCamera() {
+        //创建 ProcessCameraProvider 的实例
+        ListenableFuture<ProcessCameraProvider> cameraProviderFuture = ProcessCameraProvider.getInstance(this);
+        //向 cameraProviderFuture 添加监听器
+        cameraProviderFuture.addListener(new Runnable() {
+            @Override
+            public void run() {
+                //用于将摄像机的生命周期绑定到生命周期所有者
+                try {
+                    //将相机的生命周期绑定到应用进程中的 LifecycleOwner
+                    ProcessCameraProvider cameraProvider = cameraProviderFuture.get();
+                    bindPreview(cameraProvider);
+                } catch (ExecutionException | InterruptedException e) {
+                    e.printStackTrace();
+                }
+            }
+        }, ContextCompat.getMainExecutor(this));
     }
+
+    private void bindPreview(ProcessCameraProvider cameraProvider) {
+        //初始化 Preview 对象，在其上调用 build，从取景器中获取 Surface 提供程序，然后在预览上进行设置
+        Preview preview = new Preview.Builder()
+                .setTargetAspectRatio(AspectRatio.RATIO_4_3)
+                .build();
+        // 设置预览界面
+        preview.setSurfaceProvider(mViewBinding.viewFinder.getSurfaceProvider());
+        //创建 CameraSelector 对象,默认选择 DEFAULT_BACK_CAMERA(后置摄像头)
+        CameraSelector cameraSelector = new CameraSelector.Builder()
+                .requireLensFacing(mIsBackCamera ? LENS_FACING_BACK : LENS_FACING_FRONT)
+                .build();
+        Executor executor = Executors.newSingleThreadExecutor();
+
+        // 在重新绑定之前取消绑定用例
+        cameraProvider.unbindAll();
+
+        // 将用例绑定到相机
+        cameraProvider.bindToLifecycle(
+                this, cameraSelector, preview);
+    }
+
 
     private void takePhoto() {
     }
@@ -86,6 +135,7 @@ public class MainActivity extends AppCompatActivity {
             }
         }
     }
+
     @Override
     public void onDetachedFromWindow() {
         super.onDetachedFromWindow();
